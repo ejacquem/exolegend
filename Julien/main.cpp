@@ -15,6 +15,13 @@ enum State
     FLEE
 };
 
+enum ForceDirection
+{
+	BACKWARD,
+	FORWARD,
+	DEFAULT
+};
+
 MazeSquare *cell = NULL;
 Gladiator *gladiator;
 int shrink = 0;
@@ -22,7 +29,7 @@ State state = CHILL;
 
 bool first = true;
 float turnSpeed = 0.1;
-float angleError = radians(5);
+float angleError = radians(10);
 std::vector<MazeSquare *> bestPath;
 
 auto start = std::chrono::high_resolution_clock::now();
@@ -98,13 +105,39 @@ void lookAt(float rad) {
 	turn(turnSpeed);
 }
 
+float mix(float a, float b, float t){
+	return a * (1 - t) + b * t;
+}
+
+// turn the robot at a direction accounting for the initial speed
+void smoothLookAt(float rad){
+	float currentAngle = gladiatorAngle();
+	float diff = angleDifference(currentAngle, rad);
+	if (abs(diff) < angleError)
+		return stop();
+	turnSpeed = clamp(diff * 0.3f, -0.3f, 0.3f);
+	
+	float speedR = mix(turnSpeed, gladiator->control->getWheelSpeed(WheelAxis::RIGHT), 0.8);
+	float speedL = mix(-turnSpeed, gladiator->control->getWheelSpeed(WheelAxis::LEFT), 0.8);
+
+	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, speedR);
+	gladiator->control->setWheelSpeed(WheelAxis::LEFT, -speedL);
+}
+
+// cap speed to 1 but keep ratio
+void capSpeed(double *right, double *left) {
+	double max = std::max(abs(*right), abs(*left));
+	*right /= max;
+	*left /= max;
+}
+
 float kw = 1.2; // weight of the angular speed
-float kv = 1.2f; // weight of the linear speed
+float kv = 1.0f; // weight of the linear speed
 float wlimit = 0.8f; // angular speed limit
-float vlimit = 0.56; // linear speed limit
+float vlimit = 0.5; // linear speed limit
 float posError = 0.07; // position error
 
-bool go_to(Position dest, Position pos)
+bool go_to(Position dest, Position pos, bool bailOut = false, ForceDirection forceDir = DEFAULT)
 {
     double consvl, consvr;
     double dx = dest.x - pos.x; // dest position from current position
@@ -113,6 +146,18 @@ bool go_to(Position dest, Position pos)
 
 	double rho = atan2(dy, dx); // angle toward dest
 	double da = reductionAngle(rho - pos.a); // angle between dest and current position
+
+	bool moveBackward = false;
+	if (forceDir == BACKWARD || forceDir == DEFAULT) {
+		double rhoBack = reductionAngle(rho + M_PI); // opposite direction
+		double daBack = reductionAngle(rhoBack - pos.a); // angle to opposite
+
+		if (forceDir == BACKWARD || abs(daBack) < abs(da)) { // Less rotation needed?
+			da = daBack;
+			rho = rhoBack;
+			moveBackward = true;
+		}
+	}
 
 	if (abs(da) > (angleError * 1)) {
 		lookAt(rho);
@@ -125,9 +170,20 @@ bool go_to(Position dest, Position pos)
         consv = abs(consv) > vlimit ? (consv > 0 ? 1 : -1) * vlimit : consv;
 
 		float angularSpeed = gladiator->robot->getRobotRadius() * consw;
+		
+		// Reverse motion if moving backward
+		if (moveBackward) {
+			consv = -consv;
+			// angularSpeed = -angularSpeed;
+		}
 
         consvl = consv - angularSpeed; // GFA 3.6.2
         consvr = consv + angularSpeed; // GFA 3.6.2
+
+		if (bailOut){
+			capSpeed(&consvr, &consvl);
+		}
+
 		gladiator->control->setWheelSpeed(WheelAxis::RIGHT, consvr, false); // GFA 3.2.1
 		gladiator->control->setWheelSpeed(WheelAxis::LEFT, consvl, false);  // GFA 3.2.1
     }
@@ -137,6 +193,23 @@ bool go_to(Position dest, Position pos)
 		return true;
     }
 	return false;
+}
+
+bool isPlayerOutOfMap(){
+	Position pos = gladiator->robot->getData().position;
+	float mazeSize = gladiator->maze->getCurrentMazeSize();
+	float shrinkSize = mazeSize / 6;
+	float mazeTotalSize = gladiator->maze->getSize() - (remaining  <= 2) * shrinkSize;
+	float limitMin = (mazeTotalSize - mazeSize) / 2;
+	float limitMax = (mazeTotalSize - mazeSize) / 2 + mazeSize;
+	return pos.x > limitMax || pos.x < limitMin || pos.y > limitMax || pos.y < limitMin;
+}
+
+bool isPlayerInDanger(){
+	MazeSquare *currentSquare = gladiator->maze->getNearestSquare();
+	if (currentSquare == nullptr)
+		return true;
+	return currentSquare->danger > 5;
 }
 
 void reset()
@@ -163,10 +236,18 @@ void loop()
 {
     if (gladiator->game->isStarted())
     {
-        int remaining = getTimeRemaining();
+        remaining = getTimeRemaining();
         int bombCount = gladiator->weapon->getBombCount();
         if (bombCount > 0)
             gladiator->weapon->dropBombs(bombCount);
+
+		if ((isPlayerOutOfMap() || isPlayerInDanger()) && shrink < 4){
+			gladiator->log("Fleeing");
+			bestPath.clear();
+			cell = NULL;
+			go_to({1.5, 1.5, 0}, gladiator->robot->getData().position, true);
+			return;
+		}
 
         if (bestPath.empty())
         {
