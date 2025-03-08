@@ -1,5 +1,4 @@
 #include "search.hpp"
-
 #include "gladiator.h"
 #include <cmath>
 #include <set>
@@ -10,14 +9,24 @@
 #include <chrono>
 #undef abs
 
+enum State
+{
+    CHILL,
+    FLEE
+};
+
 MazeSquare *cell = NULL;
 Gladiator *gladiator;
+int shrink = 0;
+State state = CHILL;
 
 bool first = true;
 float turnSpeed = 0.1;
 float angleError = radians(5);
 std::vector<MazeSquare *> bestPath;
 
+auto start = std::chrono::high_resolution_clock::now();
+auto timeBefore = std::chrono::high_resolution_clock::now();
 float gladiatorAngle() {
 	return gladiator->robot->getData().position.a;
 }
@@ -90,7 +99,7 @@ void lookAt(float rad) {
 }
 
 float kw = 1.2; // weight of the angular speed
-float kv = 1.f; // weight of the linear speed
+float kv = 1.2f; // weight of the linear speed
 float wlimit = 0.8f; // angular speed limit
 float vlimit = 0.56; // linear speed limit
 float posError = 0.07; // position error
@@ -105,7 +114,7 @@ bool go_to(Position dest, Position pos)
 	double rho = atan2(dy, dx); // angle toward dest
 	double da = reductionAngle(rho - pos.a); // angle between dest and current position
 
-	if (abs(da) > (angleError * 1.5)) {
+	if (abs(da) > (angleError * 1)) {
 		lookAt(rho);
 	}
     else if (d > posError)
@@ -135,8 +144,14 @@ void reset()
     bestPath.clear();
     cell = NULL;
     gladiator->log("Reset");
+    start = std::chrono::high_resolution_clock::now();
 }
 
+int getTimeRemaining() {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+    return 20 - elapsed;
+}
 
 void setup()
 {
@@ -148,17 +163,21 @@ void loop()
 {
     if (gladiator->game->isStarted())
     {
-        gladiator->log("Maze size %f", gladiator->maze->getCurrentMazeSize());
+        int remaining = getTimeRemaining();
+        int bombCount = gladiator->weapon->getBombCount();
+        if (bombCount > 0)
+            gladiator->weapon->dropBombs(bombCount);
+
         if (bestPath.empty())
         {
-            int bombCount = gladiator->weapon->getBombCount();
-            if (bombCount > 0)
-            {
-                gladiator->weapon->dropBombs(bombCount);
-            }
             gladiator->log("No path, searching");
-            bestPath = search(gladiator);
+            bestPath = search(gladiator, remaining < 0 ? 1 : remaining, shrink);
             gladiator->log("Path found");
+            if (bestPath.empty())
+            {
+                gladiator->log("No path found after search, going center");
+                go_to({1.5, 1.5, 0}, gladiator->robot->getData().position);
+            }
         }
         else if (!bestPath.empty())
         {
@@ -177,6 +196,12 @@ void loop()
                     cell = NULL;
                 }
             }
+        }
+        if (remaining <= 0)
+        {
+            start = std::chrono::high_resolution_clock::now();
+            gladiator->log("Area shrinked !");
+            shrink++;
         }
     }
     delay(10); // boucle à 100Hz
