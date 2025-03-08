@@ -17,7 +17,7 @@
 // };
 
 uint8_t teamId ;
-#define MAX_MOVES 3
+#define MAX_MOVES 5
 #define WALL_MALUS 8
 #define BORDER_MALUS 1
 #define DEAD_END_MALUS 4
@@ -65,7 +65,7 @@ Possibilty bestPossibility {};
 void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gladiator* gladiator, bool wall = false) {
     lastPossibility.score += getScore(square, wall);
     lastPossibility.squares[currentMove] = square;
-    gladiator->log("explore i = %d j =%d score=%d currentMove=%d", square->i, square->j, lastPossibility.score, currentMove);
+    //gladiator->log("explore i = %d j =%d score=%d currentMove=%d", square->i, square->j, lastPossibility.score, currentMove);
 
     if (lastPossibility.score > bestPossibility.score) {
         bestPossibility = lastPossibility;
@@ -76,7 +76,7 @@ void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gl
         last = lastPossibility.squares[currentMove - 1];
     currentMove++;
     if (currentMove < MAX_MOVES) {
-        gladiator->log("Exploring");
+       // gladiator->log("Exploring");
         if (square->northSquare != nullptr && square->northSquare != last) {
             explore(square->northSquare, currentMove, lastPossibility, gladiator);
         }
@@ -110,7 +110,7 @@ void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gl
                 explore(nSquare, currentMove, lastPossibility, gladiator, true);
         }
     }
-    gladiator->log("Done");
+   // gladiator->log("Done");
 }
 
 std::vector<MazeSquare *> search(Gladiator* gladiator) {
@@ -119,6 +119,7 @@ std::vector<MazeSquare *> search(Gladiator* gladiator) {
     std::vector<MazeSquare *> path;
     int currentMove = 0;
     Possibilty defaultPos {};
+    gladiator->log("Exploring");
     explore(a, currentMove, defaultPos, gladiator);
     gladiator->log("Finished");
 
@@ -131,15 +132,13 @@ std::vector<MazeSquare *> search(Gladiator* gladiator) {
         gladiator->log("Score of the best : %d", bestPossibility.score);
         gladiator->log("Size of the best : %lld", bestPossibility.squares.size());
 
-        for (std::size_t i = bestPossibility.squares.size(); i-- > 0;) {
-            if (bestPossibility.squares[i] == nullptr)
-                continue;
+        for (std::size_t i = 0 ; i < bestPossibility.squares.size(); i++) {
             path.push_back(bestPossibility.squares[i]);
             gladiator->log("bestPossibility i = %d j = %d", bestPossibility.squares[i]->i, bestPossibility.squares[i]->j);
         }
     }
     gladiator->log("Returning");
-   // std::reverse(path.begin(), path.end());
+    std::reverse(path.begin(), path.end());
     return path;
 }
     
