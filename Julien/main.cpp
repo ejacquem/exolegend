@@ -134,7 +134,6 @@ void reset()
 {
     bestPath.clear();
     cell = NULL;
-    first = true;
     gladiator->log("Reset");
 }
 
@@ -151,14 +150,21 @@ void loop()
     {
         if (bestPath.empty())
         {
+            int bombCount = gladiator->weapon->getBombCount();
+        
+            if (bombCount > 0) {
+                gladiator->weapon->dropBombs(bombCount - 0);
+            }
+            gladiator->log("No path, searching");
             bestPath = search(gladiator);
             gladiator->log("Path found");
-            gladiator->log("Path size = %lld", bestPath.size());
         }
-        if (!bestPath.empty())
+        else if (!bestPath.empty())
         {
             if (cell == NULL)
+            {
                 cell = bestPath.back();
+            }
             else
             {
                 Position goal = {Utils::PosIntToFloat(cell->i), Utils::PosIntToFloat(cell->j), 0};
