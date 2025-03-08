@@ -16,6 +16,7 @@ Gladiator *gladiator;
 bool first = true;
 float turnSpeed = 0.1;
 float angleError = radians(5);
+std::vector<MazeSquare *> bestPath;
 
 float gladiatorAngle() {
 	return gladiator->robot->getData().position.a;
@@ -131,7 +132,10 @@ bool go_to(Position dest, Position pos)
 
 void reset()
 {
- first = true;
+    bestPath.clear();
+    cell = NULL;
+    first = true;
+    gladiator->log("Reset");
 }
 
 
@@ -145,9 +149,27 @@ void loop()
 {
     if (gladiator->game->isStarted())
     {
-        if (first){
-            first = false;
-            search(gladiator);
+        if (bestPath.empty())
+        {
+            bestPath = search(gladiator);
+            gladiator->log("Path found");
+            gladiator->log("Path size = %lld", bestPath.size());
+        }
+        if (!bestPath.empty())
+        {
+            if (cell == NULL)
+                cell = bestPath.back();
+            else
+            {
+                Position goal = {Utils::PosIntToFloat(cell->i), Utils::PosIntToFloat(cell->j), 0};
+                Position start = gladiator->robot->getData().position;
+                if (go_to(goal, start))
+                {
+                    gladiator->log("Reached Cell");
+                    bestPath.pop_back();
+                    cell = NULL;
+                }
+            }
         }
     }
     delay(10); // boucle à 100Hz

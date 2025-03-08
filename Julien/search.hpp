@@ -17,7 +17,7 @@
 // };
 
 uint8_t teamId ;
-#define MAX_MOVES 5
+#define MAX_MOVES 3
 #define WALL_MALUS 8
 #define BORDER_MALUS 1
 #define DEAD_END_MALUS 4
@@ -114,6 +114,7 @@ void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gl
 }
 
 std::vector<MazeSquare *> search(Gladiator* gladiator) {
+    bestPossibility = {};
     MazeSquare* a = gladiator->maze->getNearestSquare();
     std::vector<MazeSquare *> path;
     int currentMove = 0;
@@ -130,15 +131,15 @@ std::vector<MazeSquare *> search(Gladiator* gladiator) {
         gladiator->log("Score of the best : %d", bestPossibility.score);
         gladiator->log("Size of the best : %lld", bestPossibility.squares.size());
 
-        for (std::size_t i = 0; i < bestPossibility.squares.size(); i++) {
-            path.push_back(bestPossibility.squares[i]);
+        for (std::size_t i = bestPossibility.squares.size(); i-- > 0;) {
             if (bestPossibility.squares[i] == nullptr)
                 continue;
+            path.push_back(bestPossibility.squares[i]);
             gladiator->log("bestPossibility i = %d j = %d", bestPossibility.squares[i]->i, bestPossibility.squares[i]->j);
         }
     }
     gladiator->log("Returning");
-    std::reverse(path.begin(), path.end());
+   // std::reverse(path.begin(), path.end());
     return path;
 }
     
