@@ -1,5 +1,4 @@
 #include "search.hpp"
-
 #include "gladiator.h"
 #include <cmath>
 #include <set>
@@ -12,12 +11,15 @@
 
 MazeSquare *cell = NULL;
 Gladiator *gladiator;
+int shrink = 0;
 
 bool first = true;
 float turnSpeed = 0.1;
 float angleError = radians(5);
 std::vector<MazeSquare *> bestPath;
 
+auto start = std::chrono::high_resolution_clock::now();
+auto timeBefore = std::chrono::high_resolution_clock::now();
 float gladiatorAngle() {
 	return gladiator->robot->getData().position.a;
 }
@@ -135,8 +137,14 @@ void reset()
     bestPath.clear();
     cell = NULL;
     gladiator->log("Reset");
+    start = std::chrono::high_resolution_clock::now();
 }
 
+int getTimeRemaining() {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+    return 20 - elapsed;
+}
 
 void setup()
 {
@@ -148,16 +156,21 @@ void loop()
 {
     if (gladiator->game->isStarted())
     {
-        gladiator->log("Maze size %f", gladiator->maze->getCurrentMazeSize());
+        int remaining = getTimeRemaining();
+        if (remaining < 2)
+        {
+            bestPath.clear();
+            cell = NULL;
+        }
+
+        int bombCount = gladiator->weapon->getBombCount();
+        if (bombCount > 0)
+            gladiator->weapon->dropBombs(bombCount);
+
         if (bestPath.empty())
         {
-            int bombCount = gladiator->weapon->getBombCount();
-            if (bombCount > 0)
-            {
-                gladiator->weapon->dropBombs(bombCount);
-            }
             gladiator->log("No path, searching");
-            bestPath = search(gladiator);
+            bestPath = search(gladiator, remaining, shrink);
             gladiator->log("Path found");
         }
         else if (!bestPath.empty())
@@ -177,6 +190,12 @@ void loop()
                     cell = NULL;
                 }
             }
+        }
+        if (remaining <= 0)
+        {
+            start = std::chrono::high_resolution_clock::now();
+            gladiator->log("Area shrinked !");
+            shrink++;
         }
     }
     delay(10); // boucle à 100Hz
