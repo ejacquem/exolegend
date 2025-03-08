@@ -17,11 +17,11 @@
 // };
 
 uint8_t teamId ;
-#define MAX_MOVES 4
+#define MAX_MOVES 5
 #define WALL_MALUS 15
-#define BORDER_MALUS 50
-#define DEAD_END_MALUS 4
-#define DANGER_MULT 10
+#define BORDER_MALUS 250
+#define DEAD_END_MALUS 0
+#define DANGER_MULT 30
 #define COIN_MULT 10
 #define ROBOT_PROXITIMTY_RADIUS 3
 #define ROBOT_PROXIMITY_DANGER 10
@@ -29,25 +29,43 @@ uint8_t teamId ;
 int const size = 12;
 int shrinked = 0;
 int remaining = 0;
+Gladiator* _gladiator;
 
 int getScore(MazeSquare* square, bool isGoingThroughWall) {
     int score = 0;
+   // _gladiator->log("Calculating score for square at (%d, %d)", square->i, square->j);
     if (square->i == shrinked || square->i == size - shrinked - 1 || square->j == shrinked || square->j == size - shrinked - 1)
+    {
+       // _gladiator->log("On a border, minusing %d to score", remaining < 5 ? BORDER_MALUS / remaining : 0);
         score -= remaining < 5 ? BORDER_MALUS / remaining : 0;
+    }
     int i = 0;
-    if (!square->northSquare)
-        i++;
-    if (!square->southSquare)
-        i++;
-    if (!square->westSquare)
-        i++;
-    if (!square->eastSquare)
-        i++;
-    score -= i == 3 ? DEAD_END_MALUS : 0;
-    score -= square->danger * DANGER_MULT;
-    score += square->coin.value * COIN_MULT;
-    score -= isGoingThroughWall ? WALL_MALUS : 0;
-    score += 100;
+    if (!square->northSquare) i++;
+    if (!square->southSquare) i++;
+    if (!square->westSquare) i++;
+    if (!square->eastSquare) i++;
+    if (i == 3) {
+        score -= DEAD_END_MALUS;
+      //  _gladiator->log("Is a dead end, minusing %d to score", DEAD_END_MALUS);
+    }
+
+    int dangerPenalty = square->danger * DANGER_MULT;
+    score -= dangerPenalty;
+   // _gladiator->log("Danger level %d, minusing %d to score", square->danger, dangerPenalty);
+
+    int coinBonus = square->coin.value * COIN_MULT;
+    score += coinBonus;
+   // _gladiator->log("Coin value %d, adding %d to score", square->coin.value, coinBonus);
+
+    if (isGoingThroughWall) {
+        score -= WALL_MALUS;
+      //  _gladiator->log("Going through a wall, minusing %d to score", WALL_MALUS);
+    }
+
+    score += 50;
+    //_gladiator->log("Adding base score of 100");
+
+   // _gladiator->log("Final score for square at (%d, %d) is %d", square->i, square->j, score);
     return score;
 }
 
@@ -59,15 +77,19 @@ bool isOutside(MazeSquare* square) {
 
 struct Possibilty {
     std::array<MazeSquare*, MAX_MOVES> squares {}; 
+    std::array<int, MAX_MOVES> scores {};
     int score = 0;
+
 };
 
 Possibilty bestPossibility {};
 
 void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gladiator* gladiator, bool wall = false) {
     //gladiator->log("Score at begining of explore : %d", lastPossibility.score);
-    lastPossibility.score += getScore(square, wall);
+    int squareScore = getScore(square, wall);
+    lastPossibility.score += squareScore;
     lastPossibility.squares[currentMove] = square;
+    lastPossibility.scores[currentMove] = squareScore;
     //gladiator->log("explore i = %d j =%d score=%d currentMove=%d", square->i, square->j, lastPossibility.score, currentMove);
 
     if (lastPossibility.score > bestPossibility.score) {
@@ -121,11 +143,26 @@ void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gl
    // gladiator->log("Done");
 }
 
+void shrinkPossibility() {
+    int currentMove = MAX_MOVES - 1;
+    while (currentMove > 0) {
+        if (bestPossibility.scores[currentMove] < 0) {
+            bestPossibility.score -= bestPossibility.scores[currentMove];
+            bestPossibility.squares[currentMove] = nullptr;
+            bestPossibility.scores[currentMove] = 0;
+            currentMove--;
+        } else {
+            break;
+        }
+    }
+}
+
 std::vector<MazeSquare *> search(Gladiator* gladiator, int _remaining, int _shrink) {
     bestPossibility = {};
     bestPossibility.score = -5000;
     remaining = _remaining;
     shrinked = _shrink;
+    _gladiator = gladiator;
     MazeSquare* a = gladiator->maze->getNearestSquare();
     std::vector<MazeSquare *> path;
     int currentMove = 0;
@@ -144,6 +181,7 @@ std::vector<MazeSquare *> search(Gladiator* gladiator, int _remaining, int _shri
         gladiator->log("Score of the best : %d", bestPossibility.score);
         gladiator->log("Size of the best : %lld", bestPossibility.squares.size());
 
+        //shrinkPossibility();
         for (std::size_t i = 0 ; i < bestPossibility.squares.size(); i++) {
             if (bestPossibility.squares[i] == nullptr)
                 break;

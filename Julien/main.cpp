@@ -9,9 +9,16 @@
 #include <chrono>
 #undef abs
 
+enum State
+{
+    CHILL,
+    FLEE
+};
+
 MazeSquare *cell = NULL;
 Gladiator *gladiator;
 int shrink = 0;
+State state = CHILL;
 
 bool first = true;
 float turnSpeed = 0.1;
@@ -92,7 +99,7 @@ void lookAt(float rad) {
 }
 
 float kw = 1.2; // weight of the angular speed
-float kv = 1.f; // weight of the linear speed
+float kv = 1.2f; // weight of the linear speed
 float wlimit = 0.8f; // angular speed limit
 float vlimit = 0.56; // linear speed limit
 float posError = 0.07; // position error
@@ -107,7 +114,7 @@ bool go_to(Position dest, Position pos)
 	double rho = atan2(dy, dx); // angle toward dest
 	double da = reductionAngle(rho - pos.a); // angle between dest and current position
 
-	if (abs(da) > (angleError * 1.5)) {
+	if (abs(da) > (angleError * 1)) {
 		lookAt(rho);
 	}
     else if (d > posError)
@@ -157,12 +164,6 @@ void loop()
     if (gladiator->game->isStarted())
     {
         int remaining = getTimeRemaining();
-        if (remaining < 2)
-        {
-            bestPath.clear();
-            cell = NULL;
-        }
-
         int bombCount = gladiator->weapon->getBombCount();
         if (bombCount > 0)
             gladiator->weapon->dropBombs(bombCount);
@@ -170,8 +171,13 @@ void loop()
         if (bestPath.empty())
         {
             gladiator->log("No path, searching");
-            bestPath = search(gladiator, remaining, shrink);
+            bestPath = search(gladiator, remaining < 0 ? 1 : remaining, shrink);
             gladiator->log("Path found");
+            if (bestPath.empty())
+            {
+                gladiator->log("No path found after search, going center");
+                go_to({1.5, 1.5, 0}, gladiator->robot->getData().position);
+            }
         }
         else if (!bestPath.empty())
         {
