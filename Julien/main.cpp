@@ -1,339 +1,154 @@
+#include "search.hpp"
+
 #include "gladiator.h"
 #include <cmath>
-#include "movement.hpp"
+#include <set>
+#include "utils.hpp"
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <chrono>
 #undef abs
 
-// x,y représentent des coordonnées en m
-// Vector{1.5,1.5} représente le point central
-// Pour convertir une cordonnée de cellule (i,j) (0<=i<=13, 0<=j<=13) :
-// x = i * CELL_SIZE + 0.5*CELL_SIZE
-// y = j * CELL_SIZE + 0.5*CELL_SIZE
-// avec CELL_SIZE = 3.0/14 (~0.214)
-
-int x = 12;
-int y = 12;
-int targetX = 6;
-int targetY = 6;
-int timer = 0;
-
-MazeSquare *targetCell;
-class Vector2
-{
-  public:
-    Vector2() : _x(0.), _y(0.)
-    {
-    }
-    Vector2(float x, float y) : _x(x), _y(y)
-    {
-    }
-
-    float norm1() const
-    {
-        return std::abs(_x) + std::abs(_y);
-    }
-    float norm2() const
-    {
-        return std::sqrt(_x * _x + _y * _y);
-    }
-    void normalize()
-    {
-        _x /= norm2();
-        _y /= norm2();
-    }
-    Vector2 normalized() const
-    {
-        Vector2 out = *this;
-        out.normalize();
-        return out;
-    }
-
-    Vector2 operator-(const Vector2 &other) const
-    {
-        return {_x - other._x, _y - other._y};
-    }
-    Vector2 operator+(const Vector2 &other) const
-    {
-        return {_x + other._x, _y + other._y};
-    }
-    Vector2 operator*(float f) const
-    {
-        return {_x * f, _y * f};
-    }
-
-    bool operator==(const Vector2 &other) const
-    {
-        return std::abs(_x - other._x) < 1e-5 && std::abs(_y - other._y) < 1e-5;
-    }
-    bool operator!=(const Vector2 &other) const
-    {
-        return !(*this == other);
-    }
-
-    float x() const
-    {
-        return _x;
-    }
-    float y() const
-    {
-        return _y;
-    }
-
-    float dot(const Vector2 &other) const
-    {
-        return _x * other._x + _y * other._y;
-    }
-    float cross(const Vector2 &other) const
-    {
-        return _x * other._y - _y * other._x;
-    }
-    float angle(const Vector2 &m) const
-    {
-        return std::atan2(cross(m), dot(m));
-    }
-    float angle() const
-    {
-        return std::atan2(_y, _x);
-    }
-
-  private:
-    float _x, _y;
-};
-
+MazeSquare *cell = NULL;
 Gladiator *gladiator;
 
-int GetScore(MazeSquare *square, int deltaX, int deltaY)
-{
-    int score = 0;
-    if ((deltaX > 0 && square->i > targetX) || (deltaX < 0 && square->i < targetX))
-    {
-        score++;
-    }
-    if ((deltaY > 0 && square->j > targetY) || (deltaY < 0 && square->j < targetY))
-    {
-        score++;
-    }
-    return score;
+bool first = true;
+float turnSpeed = 0.1;
+float angleError = radians(5);
+
+float gladiatorAngle() {
+	return gladiator->robot->getData().position.a;
 }
 
-MazeSquare* BestSquare(MazeSquare *mySquare)
+Position gladiatorPosition() {
+	return gladiator->robot->getData().position;
+}
+
+double reductionAngle(double x)
 {
-    MazeSquare *nSquare = mySquare->northSquare;
-    MazeSquare *eSquare = mySquare->eastSquare;
-    MazeSquare *sSquare = mySquare->southSquare;
-    MazeSquare *wSquare = mySquare->westSquare;
+    x = fmod(x + PI, 2 * PI);  // Step 1: Wrap angle within [-2π, 2π]
+    if (x < 0)
+        x += 2 * PI;  // Step 2: Ensure the result is within [0, 2π]
+    return x - PI;    // Step 3: Shift to range [-π, π]
+}
 
-    int myX = mySquare->i;
-    int myY = mySquare->j;
-    int deltaX;
-    int deltaY;
-    if (myX > targetX)
+double angleDifference(double a, double b)
+{
+    return reductionAngle(b - a);
+}
+
+template <typename T>
+T clamp(T value, T minValue, T maxValue)
+{
+    if (value < minValue) return minValue;
+    if (value > maxValue) return maxValue;
+    return value;
+}
+
+// void turnLeft() {
+// 	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, turnSpeed);
+// 	gladiator->control->setWheelSpeed(WheelAxis::LEFT, -turnSpeed);
+// }
+// void turnRight() {
+// 	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, -turnSpeed);
+// 	gladiator->control->setWheelSpeed(WheelAxis::LEFT, turnSpeed);
+// }
+
+void turn(float speed)
+{
+	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, speed);
+	gladiator->control->setWheelSpeed(WheelAxis::LEFT, -speed);
+}
+
+void moveforward(float moveSpeed) {
+	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, moveSpeed);
+	gladiator->control->setWheelSpeed(WheelAxis::LEFT, moveSpeed);
+}
+
+void moveBackward(float moveSpeed) {
+	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, -moveSpeed);
+	gladiator->control->setWheelSpeed(WheelAxis::LEFT, -moveSpeed);
+}
+
+void stop() {
+	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, 0);
+	gladiator->control->setWheelSpeed(WheelAxis::LEFT, 0);
+}
+
+void lookAt(float rad) {
+	//cap the angle between 0 and 2PI
+	rad = reductionAngle(rad);
+	float currentAngle = gladiatorAngle();
+	float diff = angleDifference(currentAngle, rad);
+	if (abs(diff) < angleError)
+		return stop();
+	turnSpeed = clamp(diff * 0.3f, -0.3f, 0.3f);
+
+	turn(turnSpeed);
+}
+
+float kw = 1.2; // weight of the angular speed
+float kv = 1.f; // weight of the linear speed
+float wlimit = 0.8f; // angular speed limit
+float vlimit = 0.56; // linear speed limit
+float posError = 0.07; // position error
+
+bool go_to(Position dest, Position pos)
+{
+    double consvl, consvr;
+    double dx = dest.x - pos.x; // dest position from current position
+    double dy = dest.y - pos.y;
+    double d = sqrt(dx * dx + dy * dy);
+
+	double rho = atan2(dy, dx); // angle toward dest
+	double da = reductionAngle(rho - pos.a); // angle between dest and current position
+
+	if (abs(da) > (angleError * 1.5)) {
+		lookAt(rho);
+	}
+    else if (d > posError)
     {
-        deltaX = -1;
-    }
-    else if (myX < targetX)
-    {
-        deltaX = 1;
+		double consw = kw * da;
+        double consv = kv * d * cos(da);
+        consw = abs(consw) > wlimit ? (consw > 0 ? 1 : -1) * wlimit : consw;
+        consv = abs(consv) > vlimit ? (consv > 0 ? 1 : -1) * vlimit : consv;
+
+		float angularSpeed = gladiator->robot->getRobotRadius() * consw;
+
+        consvl = consv - angularSpeed; // GFA 3.6.2
+        consvr = consv + angularSpeed; // GFA 3.6.2
+		gladiator->control->setWheelSpeed(WheelAxis::RIGHT, consvr, false); // GFA 3.2.1
+		gladiator->control->setWheelSpeed(WheelAxis::LEFT, consvl, false);  // GFA 3.2.1
     }
     else
     {
-        deltaX = 0;
+		stop();
+		return true;
     }
-
-    if (myY > targetY)
-    {
-        deltaY = -1;
-    }
-    else if (myY < targetY)
-    {
-        deltaY = 1;
-    }
-    else
-    {
-        deltaY = 0;
-    }
-
-    if (deltaX == 0 && deltaY == 0)
-    {
-        return mySquare;
-    }
-
-    int bestScore = -90;
-    MazeSquare* bestSquare = mySquare;
-    if (nSquare)
-    {
-
-        gladiator->log("NSQUARE connected");
-        
-        int score = GetScore(nSquare, deltaX, deltaY);
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestSquare = nSquare;
-            gladiator->log("nSquare %d %d", nSquare->i, nSquare->j);
-        }
-    }
-
-    if (eSquare)
-    {
-        gladiator->log("ESQUARE connected");
-        int score = GetScore(eSquare, deltaX, deltaY);
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestSquare = eSquare;
-            gladiator->log("eSquare %d %d", eSquare->i, eSquare->j);
-        }
-    }
-
-    if (sSquare)
-    {
-        gladiator->log("SSQUARE connected");
-        int score = GetScore(sSquare, deltaX, deltaY);
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestSquare = sSquare;
-            gladiator->log("sSquare %d %d", sSquare->i, sSquare->j);
-        }
-    }
-
-    if (wSquare)
-    {
-        gladiator->log("WSQUARE connected");
-        int score = GetScore(wSquare, deltaX, deltaY);
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestSquare = wSquare;
-            gladiator->log("wSquare %d %d", wSquare->i, wSquare->j);
-        }
-    }
-    if (bestSquare == mySquare)
-    {
-        gladiator->log("bestSquare is mySquare");
-    }
-    else if (bestSquare == nSquare)
-    {
-        gladiator->log("bestSquare is nSquare");
-    }
-    else if (bestSquare == eSquare)
-    {
-        gladiator->log("bestSquare is eSquare");
-    }
-    else if (bestSquare == sSquare)
-    {
-        gladiator->log("bestSquare is sSquare");
-    }
-    else if (bestSquare == wSquare)
-    {
-        gladiator->log("bestSquare is wSquare");
-    }
-    return bestSquare;
+	return false;
 }
 
 void reset()
 {
-    MazeSquare *mySquare = gladiator->maze->getNearestSquare();
-    targetCell = BestSquare(mySquare);
-    if (targetCell == NULL)
-    {
-        gladiator->log("targetCell is NULL");
-    }
-    else
-    {
-        gladiator->log("targetCell %d %d", targetCell->i, targetCell->j);
-    }
+ first = true;
 }
 
-inline float moduloPi(float a) // return angle in [-pi; pi]
-{
-    return (a < 0.0) ? (std::fmod(a - M_PI, 2 * M_PI) + M_PI) : (std::fmod(a + M_PI, 2 * M_PI) - M_PI);
-}
-
-inline bool aim(Gladiator *gladiator, const Vector2 &target, bool showLogs)
-{
-    constexpr float ANGLE_REACHED_THRESHOLD = 0.1;
-    constexpr float POS_REACHED_THRESHOLD = 0.05;
-
-    auto posRaw = gladiator->robot->getData().position;
-    Vector2 pos{posRaw.x, posRaw.y};
-
-    Vector2 posError = target - pos;
-
-    float targetAngle = posError.angle();
-    float angleError = moduloPi(targetAngle - posRaw.a);
-
-    bool targetReached = false;
-    float leftCommand = 0.f;
-    float rightCommand = 0.f;
-
-    if (posError.norm2() < POS_REACHED_THRESHOLD) //
-    {
-        targetReached = true;
-    }
-    else if (std::abs(angleError) > ANGLE_REACHED_THRESHOLD)
-    {
-        float factor = 0.2;
-        if (angleError < 0)
-            factor = -factor;
-        rightCommand = factor;
-        leftCommand = -factor;
-    }
-    else
-    {
-        float factor = 0.5;
-        rightCommand = factor; //+angleError*0.1  => terme optionel, "pseudo correction angulaire";
-        leftCommand = factor;  //-angleError*0.1   => terme optionel, "pseudo correction angulaire";
-    }
-
-    gladiator->control->setWheelSpeed(WheelAxis::LEFT, leftCommand);
-    gladiator->control->setWheelSpeed(WheelAxis::RIGHT, rightCommand);
-
-    /*if (showLogs || targetReached)
-    {
-        gladiator->log("ta %f, ca %f, ea %f, tx %f cx %f ex %f ty %f cy %f ey %f", targetAngle, posRaw.a, angleError,
-                       target.x(), pos.x(), posError.x(), target.y(), pos.y(), posError.y());
-    }*/
-
-    return targetReached;
-}
 
 void setup()
 {
-    // instanciation de l'objet gladiator
     gladiator = new Gladiator();
-    // enregistrement de la fonction de reset qui s'éxecute à chaque fois avant qu'une partie commence
     gladiator->game->onReset(&reset);
 }
 
 void loop()
 {
-    timer++ ;
     if (gladiator->game->isStarted())
     {
-
-        MazeSquare *mySquare = gladiator->maze->getNearestSquare();
-        targetCell = BestSquare(mySquare);
-        if (targetCell == NULL)
-        {
-
-                gladiator->log("targetCell is NULL");
-                timer = 0;
-            
+        if (first){
+            first = false;
+            search(gladiator);
         }
-        else
-        {
-
-                gladiator->log("targetCell %d %d", targetCell->i, targetCell->j);
-                timer = 0;
-            
-
-        }
-
-        Position pos = gladiator->robot->getData().position;
-        Position goal{static_cast<float>(targetCell->i) / 4, static_cast<float>(targetCell->j) / 4, 0};
-        Movement movement = Movement();
-        movement.go_to(pos, goal, gladiator);
     }
-    delay(1000); // boucle à 100Hz
+    delay(10); // boucle à 100Hz
 }
