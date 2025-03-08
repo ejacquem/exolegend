@@ -3,6 +3,7 @@
 #include "gladiator.h"
 #include <array>
 #include <vector>
+#include <algorithm>
 
 // class Search 
 // {
@@ -112,8 +113,9 @@ void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gl
     gladiator->log("Done");
 }
 
-std::array<MazeSquare *, MAX_MOVES> search(Gladiator* gladiator) {
+std::vector<MazeSquare *> search(Gladiator* gladiator) {
     MazeSquare* a = gladiator->maze->getNearestSquare();
+    std::vector<MazeSquare *> path;
     int currentMove = 0;
     Possibilty defaultPos {};
     explore(a, currentMove, defaultPos, gladiator);
@@ -129,14 +131,15 @@ std::array<MazeSquare *, MAX_MOVES> search(Gladiator* gladiator) {
         gladiator->log("Size of the best : %lld", bestPossibility.squares.size());
 
         for (std::size_t i = 0; i < bestPossibility.squares.size(); i++) {
+            path.push_back(bestPossibility.squares[i]);
             if (bestPossibility.squares[i] == nullptr)
                 continue;
             gladiator->log("bestPossibility i = %d j = %d", bestPossibility.squares[i]->i, bestPossibility.squares[i]->j);
         }
     }
     gladiator->log("Returning");
-
-    return bestPossibility.squares;
+    std::reverse(path.begin(), path.end());
+    return path;
 }
     
 #endif
