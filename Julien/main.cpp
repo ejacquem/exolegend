@@ -148,12 +148,13 @@ void loop()
 {
     if (gladiator->game->isStarted())
     {
+        gladiator->log("Maze size %f", gladiator->maze->getCurrentMazeSize());
         if (bestPath.empty())
         {
             int bombCount = gladiator->weapon->getBombCount();
-        
-            if (bombCount > 0) {
-                gladiator->weapon->dropBombs(bombCount - 0);
+            if (bombCount > 0)
+            {
+                gladiator->weapon->dropBombs(bombCount);
             }
             gladiator->log("No path, searching");
             bestPath = search(gladiator);

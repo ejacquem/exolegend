@@ -17,7 +17,7 @@
 // };
 
 uint8_t teamId ;
-#define MAX_MOVES 5
+#define MAX_MOVES 6
 #define WALL_MALUS 8
 #define BORDER_MALUS 1
 #define DEAD_END_MALUS 4
@@ -57,17 +57,19 @@ bool isOutside(MazeSquare* square) {
 
 struct Possibilty {
     std::array<MazeSquare*, MAX_MOVES> squares {}; 
-    int score = 0;
+    int score = -5000;
 };
 
 Possibilty bestPossibility {};
 
 void explore(MazeSquare* square, int currentMove, Possibilty lastPossibility, Gladiator* gladiator, bool wall = false) {
+    gladiator->log("Score at begining of explore : %d", lastPossibility.score);
     lastPossibility.score += getScore(square, wall);
     lastPossibility.squares[currentMove] = square;
     //gladiator->log("explore i = %d j =%d score=%d currentMove=%d", square->i, square->j, lastPossibility.score, currentMove);
 
     if (lastPossibility.score > bestPossibility.score) {
+        gladiator->log("New bestPossibility old score was %d now %d", bestPossibility.score, lastPossibility.score);
         bestPossibility = lastPossibility;
     }
 
@@ -133,6 +135,8 @@ std::vector<MazeSquare *> search(Gladiator* gladiator) {
         gladiator->log("Size of the best : %lld", bestPossibility.squares.size());
 
         for (std::size_t i = 0 ; i < bestPossibility.squares.size(); i++) {
+            if (bestPossibility.squares[i] == nullptr)
+                break;
             path.push_back(bestPossibility.squares[i]);
             gladiator->log("bestPossibility i = %d j = %d", bestPossibility.squares[i]->i, bestPossibility.squares[i]->j);
         }
