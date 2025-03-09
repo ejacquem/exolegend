@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include "Vector2D.hpp"
 #undef abs
 
 enum State
@@ -22,10 +23,19 @@ enum ForceDirection
 	DEFAULT
 };
 
+enum EnemyState
+{
+    LOOKING,
+    UNAWARE,
+    ATTACKING
+};
+
 MazeSquare *cell = NULL;
 Gladiator *gladiator;
 int shrink = 0;
 State state = CHILL;
+uint8_t allyId;
+std::vector<uint8_t> robots;
 
 bool first = true;
 float turnSpeed = 0.1;
@@ -218,7 +228,44 @@ void reset()
     cell = NULL;
     gladiator->log("Reset");
     start = std::chrono::high_resolution_clock::now();
+	RobotList initialRobots = gladiator->game->getPlayingRobotsId();
+    robots.clear();
+    for (int i = 0; i < 4; i++)
+    {
+        if (initialRobots.ids != NULL && initialRobots.ids[i] != gladiator->robot->getData().id)
+            if (gladiator->game->getOtherRobotData(initialRobots.ids[i]).teamId != gladiator->robot->getData().teamId)
+                robots.push_back(initialRobots.ids[i]);
+            else
+                allyId = initialRobots.ids[i];
+    }
 }
+
+uint8_t getClosestEnemy()
+{
+    Position pos = gladiator->robot->getData().position;
+    uint8_t closest = -1;
+    float minDist = 1000;
+    for (uint8_t id : robots)
+    {
+        RobotData enemy = gladiator->game->getOtherRobotData(id);
+        if (enemy.lifes <= 0)
+            continue;
+        Position enemyPos = enemy.position;
+        float dist = Vector2D::distance(Vector2D(pos.x, pos.y), Vector2D(enemyPos.x, enemyPos.y)).getMagnitude();
+        if (dist < minDist)
+        {
+            minDist = dist;
+            closest = id;
+        }
+    }
+    return closest;
+}
+
+EnemyState getEnemyState(uint8_t robot)
+{
+
+}
+
 
 int getTimeRemaining() {
     auto now = std::chrono::high_resolution_clock::now();
