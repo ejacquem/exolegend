@@ -1,5 +1,5 @@
-#include "search.hpp"
 #include "gladiator.h"
+#include "search.hpp"
 #include <cmath>
 #include <set>
 #include "utils.hpp"
@@ -9,6 +9,10 @@
 #include <chrono>
 #include "Vector2D.hpp"
 #undef abs
+
+#define ROBOT_CHECK_RADIUS 1.0
+#define ANGLE_WATCH_ERROR radians(5)
+#define ANGLE_ATTACK_ERROR radians(35)
 
 enum State
 {
@@ -27,7 +31,9 @@ enum EnemyState
 {
     LOOKING,
     UNAWARE,
-    ATTACKING
+    CHARGING,
+    ATTACKING,
+    NONE
 };
 
 MazeSquare *cell = NULL;
@@ -72,15 +78,6 @@ T clamp(T value, T minValue, T maxValue)
     if (value > maxValue) return maxValue;
     return value;
 }
-
-// void turnLeft() {
-// 	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, turnSpeed);
-// 	gladiator->control->setWheelSpeed(WheelAxis::LEFT, -turnSpeed);
-// }
-// void turnRight() {
-// 	gladiator->control->setWheelSpeed(WheelAxis::RIGHT, -turnSpeed);
-// 	gladiator->control->setWheelSpeed(WheelAxis::LEFT, turnSpeed);
-// }
 
 void turn(float speed)
 {
@@ -252,7 +249,7 @@ uint8_t getClosestEnemy()
             continue;
         Position enemyPos = enemy.position;
         float dist = Vector2D::distance(Vector2D(pos.x, pos.y), Vector2D(enemyPos.x, enemyPos.y)).getMagnitude();
-        if (dist < minDist)
+        if (dist < minDist && dist <= ROBOT_CHECK_RADIUS)
         {
             minDist = dist;
             closest = id;
@@ -263,9 +260,38 @@ uint8_t getClosestEnemy()
 
 EnemyState getEnemyState(uint8_t robot)
 {
+    Position pos = gladiator->robot->getData().position;
+    RobotData enemy = gladiator->game->getOtherRobotData(robot);
+    Position enemyPos = enemy.position;
+    float dist = Vector2D::distance(Vector2D(pos.x, pos.y), Vector2D(enemyPos.x, enemyPos.y)).getMagnitude();
 
+    float angleToEnemy = atan2(enemyPos.y - pos.y, enemyPos.x - pos.x);
+    float angleDiff = abs(angleDifference(enemyPos.a, -angleToEnemy));
+
+        if (dist < 0.5)
+        {
+            if (angleDiff < ANGLE_ATTACK_ERROR)
+                return ATTACKING;
+            else
+                return UNAWARE;
+        }
+        else
+        {
+            if (angleDiff < ANGLE_WATCH_ERROR)
+            {
+                if (enemy.vl >= 0.5 && enemy.vr >= 0.5)
+                {
+                    return CHARGING;
+                }
+                else
+                {
+                    return LOOKING;
+                }
+            }
+            else return UNAWARE;
+        }
+        return NONE;
 }
-
 
 int getTimeRemaining() {
     auto now = std::chrono::high_resolution_clock::now();
@@ -277,6 +303,13 @@ void setup()
 {
     gladiator = new Gladiator();
     gladiator->game->onReset(&reset);
+}
+
+void ChargeTheWeaks(RobotData enemy)
+{
+    Position pos = gladiator->robot->getData().position;
+    Position enemyPos = enemy.position;
+    go_to(enemyPos, pos, true, FORWARD);
 }
 
 void loop()
@@ -293,8 +326,47 @@ void loop()
 			bestPath.clear();
 			cell = NULL;
 			go_to({1.5, 1.5, 0}, gladiator->robot->getData().position, true);
+            delay(10);
 			return;
 		}
+        
+        uint8_t closest = getClosestEnemy();
+        if (closest != -1)
+        {
+            EnemyState enemyState = getEnemyState(closest);
+            if (enemyState != NONE)
+            {
+                switch (enemyState)
+                {
+                case LOOKING:
+                    gladiator->log("Robot watching us");
+                    break;
+                case UNAWARE:
+                    ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
+                    cell = NULL;
+                    bestPath.clear();
+                    delay(10);
+                    return;
+                    break;
+                case CHARGING:
+                    ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
+                    cell = NULL;
+                    bestPath.clear();
+                    delay(10);
+                    return;
+                    break;
+                case ATTACKING:
+                    ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
+                    cell = NULL;
+                    bestPath.clear();
+                    delay(10);
+                    return;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
 
         if (bestPath.empty())
         {
