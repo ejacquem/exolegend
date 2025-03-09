@@ -229,22 +229,29 @@ void reset()
     robots.clear();
     for (int i = 0; i < 4; i++)
     {
-        if (initialRobots.ids != NULL && initialRobots.ids[i] != gladiator->robot->getData().id)
+        if (initialRobots.ids[i] != gladiator->robot->getData().id)
+        {
             if (gladiator->game->getOtherRobotData(initialRobots.ids[i]).teamId != gladiator->robot->getData().teamId)
+            {
                 robots.push_back(initialRobots.ids[i]);
+            }
             else
                 allyId = initialRobots.ids[i];
+        }
+ 
     }
 }
 
 uint8_t getClosestEnemy()
 {
     Position pos = gladiator->robot->getData().position;
-    uint8_t closest = -1;
+    uint8_t closest = 100;
     float minDist = 1000;
     for (uint8_t id : robots)
     {
         RobotData enemy = gladiator->game->getOtherRobotData(id);
+        if (enemy.teamId == gladiator->robot->getData().teamId)
+            continue;
         if (enemy.lifes <= 0)
             continue;
         Position enemyPos = enemy.position;
@@ -307,6 +314,7 @@ void setup()
 
 void ChargeTheWeaks(RobotData enemy)
 {
+    gladiator->log("Charging the weaks");
     Position pos = gladiator->robot->getData().position;
     Position enemyPos = enemy.position;
     go_to(enemyPos, pos, true, FORWARD);
@@ -329,80 +337,85 @@ void loop()
             delay(10);
 			return;
 		}
-        
-        uint8_t closest = getClosestEnemy();
-        if (closest != -1)
+        else
         {
-            EnemyState enemyState = getEnemyState(closest);
-            if (enemyState != NONE)
+
+            uint8_t closest = getClosestEnemy();
+            if (closest != 100)
             {
-                switch (enemyState)
+                EnemyState enemyState = getEnemyState(closest);
+                if (enemyState != NONE)
                 {
-                case LOOKING:
-                    gladiator->log("Robot watching us");
-                    break;
-                case UNAWARE:
-                    ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
-                    cell = NULL;
-                    bestPath.clear();
-                    delay(10);
-                    return;
-                    break;
-                case CHARGING:
-                    ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
-                    cell = NULL;
-                    bestPath.clear();
-                    delay(10);
-                    return;
-                    break;
-                case ATTACKING:
-                    ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
-                    cell = NULL;
-                    bestPath.clear();
-                    delay(10);
-                    return;
-                    break;
-                default:
-                    break;
+                    switch (enemyState)
+                    {
+                    case LOOKING:
+                        gladiator->log("Robot watching us");
+                        break;
+                    case UNAWARE:
+                        gladiator->log("Robot unaware");
+                        ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
+                        cell = NULL;
+                        bestPath.clear();
+                        delay(10);
+                        return;
+                        break;
+                    case CHARGING:
+                        ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
+                        cell = NULL;
+                        bestPath.clear();
+                        delay(10);
+                        return;
+                        break;
+                    case ATTACKING:
+                        ChargeTheWeaks(gladiator->game->getOtherRobotData(closest));
+                        cell = NULL;
+                        bestPath.clear();
+                        delay(10);
+                        return;
+                        break;
+                    default:
+                        break;
+                    }
                 }
             }
-        }
-
-        if (bestPath.empty())
-        {
-            gladiator->log("No path, searching");
-            bestPath = search(gladiator, remaining < 0 ? 1 : remaining, shrink);
-            gladiator->log("Path found");
+    
             if (bestPath.empty())
             {
-                gladiator->log("No path found after search, going center");
-                go_to({1.5, 1.5, 0}, gladiator->robot->getData().position);
-            }
-        }
-        else if (!bestPath.empty())
-        {
-            if (cell == NULL)
-            {
-                cell = bestPath.back();
-            }
-            else
-            {
-                Position goal = {Utils::PosIntToFloat(cell->i), Utils::PosIntToFloat(cell->j), 0};
-                Position start = gladiator->robot->getData().position;
-                if (go_to(goal, start))
+                gladiator->log("No path, searching");
+                bestPath = search(gladiator, remaining < 0 ? 1 : remaining, shrink);
+                gladiator->log("Path found");
+                if (bestPath.empty())
                 {
-                    gladiator->log("Reached Cell");
-                    bestPath.pop_back();
-                    cell = NULL;
+                    gladiator->log("No path found after search, going center");
+                    go_to({1.5, 1.5, 0}, gladiator->robot->getData().position);
                 }
             }
+            else if (!bestPath.empty())
+            {
+                if (cell == NULL)
+                {
+                    cell = bestPath.back();
+                }
+                else
+                {
+                    Position goal = {Utils::PosIntToFloat(cell->i), Utils::PosIntToFloat(cell->j), 0};
+                    Position start = gladiator->robot->getData().position;
+                    if (go_to(goal, start))
+                    {
+                        gladiator->log("Reached Cell");
+                        bestPath.pop_back();
+                        cell = NULL;
+                    }
+                }
+            }
+            if (remaining <= 0)
+            {
+                start = std::chrono::high_resolution_clock::now();
+                gladiator->log("Area shrinked !");
+                shrink++;
+            }
         }
-        if (remaining <= 0)
-        {
-            start = std::chrono::high_resolution_clock::now();
-            gladiator->log("Area shrinked !");
-            shrink++;
         }
-    }
+
     delay(10); // boucle à 100Hz
 }
